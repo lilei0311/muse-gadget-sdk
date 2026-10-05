@@ -1,0 +1,62 @@
+# Waveshare ESP32-S3-Touch-LCD-1.9
+#
+# Loaded after `sdkconfig.defaults`. A "light" board: no status LED and, for
+# now, no display backend, so this is the link-only build.
+#
+#   Chip     ESP32-S3 at 240 MHz, 16 MB flash, 8 MB octal PSRAM (AP Memory,
+#            80 MHz), quad flash data lines per the board's eFuse
+#   USB      the chip's own USB-Serial/JTAG (usbmodem), 303a:1001
+#   Button   BOOT on GPIO 0, active low
+#   Display  SH8601 170x320 on SPI3 (RST 9, CLK 10, DC 11, CS 12, MOSI 13,
+#            backlight 14), CST816 touch on I2C (SDA 47, SCL 48)
+#   Audio    I2S mic (BCLK 5, WS 6, SD 1), I2S amp (BCLK 15, WS 16, DOUT 18)
+#   SD card  CLK 41, CMD 39, D0 40
+#
+# Pins come from the board's own schematic and from the vendor firmware the
+# user builds for it (README: "Waveshare ESP32-S3-Touch-LCD-1.9"); nothing here
+# is guessed.
+#
+# The minimal shape is deliberate: no LED backend and no display backend is
+# enough to advertise, pair with the Muse app and receive a device token, which
+# is what this board is being used for. Adding the panel means adding a
+# CONFIG_MUSE_BOARD_* backend — a board file, a Kconfig entry and a row in
+# components/muse/boards/CMakeLists.txt — per devices/AGENTS.md.
+
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# The DevKitC-1 profile this builds on expects GPIO28; this board's BOOT
+# button is on 0.
+CONFIG_HOMEHUB_BUTTON_GPIO=0
+
+# No addressable LED on this board, and the panel is not wired up yet.
+CONFIG_HOMEHUB_LED_BACKEND_NONE=y
+CONFIG_HOMEHUB_DISPLAY=n
+
+# 16 MB flash, DIO like the vendor firmware rather than assuming QIO.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# Console and flashing both go over the chip's own USB-Serial/JTAG.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# 8 MB octal PSRAM. `sdkconfig.defaults` assumes quad; the tuning knobs follow
+# the other ESP32-S3 boards here, which use the same part.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_BOOT_INIT=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y
+CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
+CONFIG_SPIRAM_RODATA=y
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
+CONFIG_SPIRAM_IGNORE_NOTFOUND=n
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y

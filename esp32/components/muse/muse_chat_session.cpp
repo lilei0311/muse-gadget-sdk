@@ -82,7 +82,8 @@ using namespace musegadgets::noise::core;
 static const char *TAG = "muse_chat_session";
 
 #define NOISE_PATH "/v1/noise"
-#define NOISE_PORT 443
+/* 443 is Muse's cloud. A VM of your own on the LAN sets MUSE_VM_PORT. */
+#define NOISE_PORT CONFIG_MUSE_VM_PORT
 #define IO_TIMEOUT_US (15 * 1000000LL)
 
 #define MIC_RATE 16000
@@ -778,6 +779,22 @@ static bool resolve_vm(char *err, size_t err_cap)
         return false;
     }
     muse_settings_hatch_token(token);
+
+    /*
+     * A VM that isn't Muse's own: the token we hold is that VM's token, and
+     * the account API isn't ours to call. Skipping it matters — otherwise the
+     * session waits out three TLS timeouts on api.muse.ai before falling back
+     * to exactly this, which takes about a minute every reconnect.
+     */
+    if (want[0] && strcmp(s_host, "hatch.metaaivm.com") != 0
+        && strcmp(s_host, "api.muse.ai") != 0) {
+        ESP_LOGI(TAG, "VM host %s is not Muse's; using the token for VM %s directly", s_host, want);
+        strlcpy(s_vm.vm_id, want, sizeof(s_vm.vm_id));
+        s_vm.vm_token = token;
+        s_vm_direct = true;
+        return true;
+    }
+
     int rc = muse_hatch_api_find_vm(token, want, &s_vm);
     if (rc == 0) {
         ESP_LOGI(TAG, "VM %s (%s)", s_vm.vm_id, s_vm.vm_name);
@@ -816,7 +833,14 @@ static bool connect_once(char *err, size_t err_cap, int *http_status)
         return false;
     }
     esp_tls_cfg_t cfg = {};
+#if CONFIG_MUSE_VM_ANY_CERT
+    /* A VM on your own LAN, with a self-signed certificate. The session still
+     * runs over TLS; ESP_TLS_SKIP_SERVER_CERT_VERIFY (selected by the Kconfig)
+     * is what drops the chain check, and it only applies while no CA is
+     * attached here — so deliberately no crt_bundle_attach. */
+#else
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
+#endif
     cfg.timeout_ms = 15000;
     int64_t t0 = now_us();
     if (esp_tls_conn_new_sync(s_host, strlen(s_host), NOISE_PORT, &cfg, c.tls) != 1) {
@@ -1502,6 +1526,45 @@ static void start_tts(void)
         if (m.tts != TTS_QUEUED) {
             continue;
         }
+#if CONFIG_MUSE_VM_TTS
+        /*
+         * Ask the VM to speak this message. The captions are English (the
+         * panel's fonts have no CJK) while what gets said is Chinese, so the
+         * server keeps the spoken text against the message id and returns MP3
+         * here; decode() plays it and the captions follow. If the server has
+         * nothing for this id, fall through to the silent path below.
+         *
+         * Everything in this block follows the shape the long note above
+         * describes: TTS_ACTIVE with no self-paced frames, an empty MP3
+         * buffer, and a decoder ready for tts_data() to fill.
+         */
+        char tts_req[128];
+        snprintf(tts_req, sizeof(tts_req), "{\"message_id\":\"%s\"}", m.id);
+        int64_t tts_id = open_stream(K_TTS, "POST", "/chat/tts", "application/json",
+                                     "audio/mpeg", tts_req, true);
+        if (tts_id) {
+            for (auto &s : s_streams) {
+                if (s.id == tts_id) {
+                    s.msg = i;   /* stream_data only feeds the message being spoken */
+                    break;
+                }
+            }
+            m.pcm_start = s_turn.pcm_out;
+            m.pcm_frames = 0;
+            m.tts = TTS_ACTIVE;
+            s_turn.tts_msg = i;
+            s_turn.silent = false;
+            s_turn.mp3_len = 0;
+            s_turn.mp3_ended = false;
+            s_turn.kbps = 0;
+            s_turn.down_rate = 0;
+            mp3dec_init(&s_turn.dec);
+            ESP_LOGI(TAG, "speaking message %s (%u chars)", m.id, (unsigned)m.len);
+            show_reply_start(m);
+            return;
+        }
+        ESP_LOGW(TAG, "no TTS stream for %s; falling back to silence", m.id);
+#endif
         /*
          * Replies are text, shown at reading pace: silence in place of speech
          * paces the captions and ends the turn. To speak them instead, send

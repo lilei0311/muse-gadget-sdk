@@ -39,6 +39,7 @@ static struct {
     uint16_t sleep_s;
     bool wifi_on;
     bool ble_on;
+    bool continuous;
     char ssid[MUSE_SSID_MAX + 1];
     char pass[MUSE_PASS_MAX + 1];
     char host[MUSE_HOST_MAX + 1];
@@ -127,6 +128,9 @@ esp_err_t muse_settings_init(void)
     if (nvs_get_u8(s_nvs, "ble_on", &b) == ESP_OK) {
         s.ble_on = b;
     }
+    if (nvs_get_u8(s_nvs, "cont", &b) == ESP_OK) {
+        s.continuous = b;
+    }
     load_str("ssid", s.ssid, sizeof(s.ssid));
     load_str("pass", s.pass, sizeof(s.pass));
     load_str("host", s.host, sizeof(s.host));
@@ -139,6 +143,7 @@ esp_err_t muse_settings_init(void)
     ESP_LOGI(TAG, "vol %d%s, mic %d dB, bright %d, sleep %ds, wifi %s (%s), ble %s, muse %s",
              s.volume, s.speaker_on ? "" : " (speaker off)", s.mic_gain, s.brightness, s.sleep_s, s.wifi_on ? "on" : "off",
              "network saved by Link", s.ble_on ? "on" : "off", s.token[0] ? "token set" : "no token");
+    if (s.continuous) ESP_LOGI(TAG, "hands-free conversation on");
     return ESP_OK;
 }
 
@@ -154,6 +159,7 @@ int muse_settings_brightness(void) { return s.brightness; }
 int muse_settings_sleep_s(void) { return s.sleep_s; }
 bool muse_settings_wifi_on(void) { return s.wifi_on; }
 bool muse_settings_ble_on(void) { return s.ble_on; }
+bool muse_settings_continuous(void) { return s.continuous; }
 
 /* Home Link owns the saved networks (this is the first); the local copy is only a fallback. */
 void muse_settings_wifi(char ssid[MUSE_SSID_MAX + 1], char pass[MUSE_PASS_MAX + 1])
@@ -239,6 +245,13 @@ void muse_settings_set_ble_on(bool on)
     s.ble_on = on;
     save_u8("ble_on", on);
     notify(MUSE_SETTING_BLE);
+}
+
+void muse_settings_set_continuous(bool on)
+{
+    s.continuous = on;
+    save_u8("cont", on);
+    notify(MUSE_SETTING_CONTINUOUS);
 }
 
 void muse_settings_set_wifi(const char *ssid, const char *pass)

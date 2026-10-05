@@ -61,6 +61,22 @@ static const char *TAG = "muse_voice";
 #define HELD_MAX 4
 #define HELD_TRIES 8                            /* then a saved note is dropped */
 #define HELD_POLL_MS 5000                       /* resting with notes saved: check for Wi-Fi this often */
+
+/*
+ * Hands-free conversation (muse_settings_continuous()): the button starts it
+ * and stops it, and a pause is what sends each turn instead of the release.
+ *
+ * muse_audio_dbfs() is RMS, and muse_audio_level() maps -54..-12 dBFS onto its
+ * 0..1 scale — so -54 is this firmware's own idea of "silent". Measured on
+ * this board's INMP441 at 30 dB gain: speech sits near -50 dBFS RMS, a quiet
+ * room near -59. The two thresholds differ, and sit either side of speech, so
+ * a level wavering near the boundary doesn't chatter the turn open and shut.
+ */
+#define VAD_ON_DB (-53.0f)
+#define VAD_OFF_DB (-57.0f)
+#define VAD_ENTER_CHUNKS 3      /* 60 ms above ON before a turn counts as speech */
+#define VAD_HANGOVER_CHUNKS (MUSE_AUDIO_RATE * 8 / 10 / MUSE_AUDIO_CHUNK)   /* 800 ms of quiet sends it */
+#define VAD_IDLE_CHUNKS (MUSE_AUDIO_RATE * 6 / MUSE_AUDIO_CHUNK)            /* nothing said: give up at 6 s */
 #define HELD_KEEP_US (30LL * 60 * 1000000)      /* muse_voice_notes_waiting() */
 #define RETRY_MIN_US (15LL * 1000000)
 #define RETRY_MAX_US (120LL * 1000000)
@@ -277,6 +293,11 @@ static bool record(bool barge_in, size_t *held, char *why, size_t cap)
     size_t pre = n;
     bool released = false;
     size_t stop_at = MAX_FRAMES;
+    /* Hands-free: a pause ends the turn, and a turn nobody talks into ends by
+     * itself rather than streaming a silent room. */
+    const bool hands_free = muse_settings_continuous();
+    bool spoke = false;
+    int quiet = 0;
     while (n + MUSE_AUDIO_CHUNK <= stop_at) {
         if (muse_audio_read(s_chunk, MUSE_AUDIO_CHUNK) != ESP_OK) {
             break;
@@ -320,9 +341,38 @@ static bool record(bool barge_in, size_t *held, char *why, size_t cap)
             released = true;
             stop_at = n + TAIL_FRAMES < MAX_FRAMES ? n + TAIL_FRAMES : MAX_FRAMES;
         }
+        /* Hands-free end-of-turn: a run of quiet after speech. */
+        if (hands_free && !released) {
+            float db = muse_audio_dbfs(s_chunk, MUSE_AUDIO_CHUNK);
+            if (!muse_settings_continuous()) {
+                /* Tapped off while this turn was running: end it now rather
+                 * than wait out the VAD or the 15 s cap. */
+                ESP_LOGI(TAG, "hands-free switched off; ending the turn");
+                released = true;
+                stop_at = n + TAIL_FRAMES < MAX_FRAMES ? n + TAIL_FRAMES : MAX_FRAMES;
+            } else if (db >= VAD_ON_DB) {
+                spoke = true;
+                quiet = 0;
+            } else if (spoke && db < VAD_OFF_DB) {
+                if (++quiet >= VAD_HANGOVER_CHUNKS) {
+                    ESP_LOGI(TAG, "hands-free: %.1fs of quiet, sending the turn", (double)quiet * MUSE_AUDIO_CHUNK / MUSE_AUDIO_RATE);
+                    released = true;
+                    stop_at = n + TAIL_FRAMES < MAX_FRAMES ? n + TAIL_FRAMES : MAX_FRAMES;
+                }
+            } else if (!spoke && n - pre >= (size_t)VAD_IDLE_CHUNKS * MUSE_AUDIO_CHUNK) {
+                ESP_LOGI(TAG, "hands-free: nothing said, ending the turn");
+                released = true;
+                stop_at = n + TAIL_FRAMES < MAX_FRAMES ? n + TAIL_FRAMES : MAX_FRAMES;
+            }
+        }
     }
     muse_state_set_level(0);
     *held = n - pre;
+    /* Hands-free with nobody talking: nothing to send, and the caller's
+     * too-short path drops it and listens again. */
+    if (hands_free && !spoke) {
+        *held = 0;
+    }
 
     char tail[160];
     int tl = 0;
@@ -840,14 +890,24 @@ static void voice_task(void *arg)
             }
             /* The 20 ms read paces this loop. */
             idle_capture();
-            if (xQueueReceive(s_queue, &ev, 0) != pdTRUE) {
+            if (xQueueReceive(s_queue, &ev, 0) == pdTRUE) {
+                muse_state_poke();
+                if (ev.type != MUSE_PTT_DOWN) {
+                    continue;
+                }
+                wake = ev.wake;
+            } else if (muse_settings_continuous() && !muse_state_asleep() && can_record()) {
+                /*
+                 * Hands-free: no press started this one. record() ends the
+                 * turn on a pause instead, and finish_note() plays the reply
+                 * before the loop comes back here, so there is nothing to
+                 * talk over. The button still works as it always did — a
+                 * press while speaking is a barge-in.
+                 */
+                pending_down = false;
+            } else {
                 continue;
             }
-            muse_state_poke();
-            if (ev.type != MUSE_PTT_DOWN) {
-                continue;
-            }
-            wake = ev.wake;
         }
         if (wake && !held_on_waking()) {
             continue;   /* a tap: it only woke Muse */
@@ -865,7 +925,7 @@ static void voice_task(void *arg)
             muse_hatch_turn_cancel();
             drop_rec();
             pre_reset();
-            go_idle("HOLD LONGER TO TALK");
+            go_idle(muse_settings_continuous() ? "LISTENING..." : "HOLD LONGER TO TALK");
             continue;
         }
         if (!ok) {

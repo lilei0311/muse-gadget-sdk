@@ -169,6 +169,8 @@ static void run_command(char *cmd)
         muse_settings_set_mic_gain(n);
     } else if (!strcmp(cmd, "brightness") && parse_int(v, 10, 100, &n)) {
         muse_settings_set_brightness(n);
+    } else if (!strcmp(cmd, "voice.continuous") && parse_int(v, 0, 1, &n)) {
+        muse_settings_set_continuous(n != 0);
     } else if (!strcmp(cmd, "sleep") && parse_int(v, 0, 3600, &n)) {
         muse_settings_set_sleep_s(n);
     } else {

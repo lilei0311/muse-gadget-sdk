@@ -249,6 +249,12 @@ static void talk_button(unsigned ev)
             muse_state_poke();
             if (!muse_board->keyboard) muse_menu_key(MUSE_MENU_SELECT);
             swallow = true;
+        } else if (muse_board->touch) {
+            /* A touch board talks by tapping Muse, and taps it again to stop,
+             * so the button isn't a push-to-talk here: it stays the pairing
+             * and setup button (handled above). */
+            muse_state_poke();
+            swallow = true;
         } else {
             post(MUSE_PTT_DOWN, false);
             talk_down = true;

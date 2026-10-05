@@ -70,6 +70,10 @@ menu "Muse"
         config MUSE_BOARD_M5STACK_CORES3
             bool "M5Stack CoreS3 (ESP32-S3, 320x240 touch LCD, speaker and microphones)"
             depends on IDF_TARGET_ESP32S3
+
+        config MUSE_BOARD_WAVESHARE_S3_LCD19
+            bool "Waveshare ESP32-S3-Touch-LCD-1.9 (170x320 SH8601, one button)"
+            depends on IDF_TARGET_ESP32S3
     endchoice
 
     config MUSE_ENABLED
@@ -91,6 +95,7 @@ menu "Muse"
         default "m5stack_cardputer_adv" if MUSE_BOARD_M5STACK_CARDPUTER_ADV
         default "m5stack_stopwatch" if MUSE_BOARD_M5STACK_STOPWATCH
         default "m5stack_cores3" if MUSE_BOARD_M5STACK_CORES3
+        default "waveshare_s3_lcd19" if MUSE_BOARD_WAVESHARE_S3_LCD19
         default "none"
 
     # The Muse tools' serial port: the console UART behind the board's USB
@@ -128,5 +133,40 @@ menu "Muse"
             muse_chat_session.cpp is where a TTS API of your own can speak
             them. Needs PSRAM. Without it, voice notes go over Home Link's own
             session to its paired VM and replies are shown as text.
+
+    config MUSE_VM_PORT
+        int "VM port"
+        default 443
+        depends on MUSE_HATCH
+        help
+            The port the voice session connects to. 443 is Muse's cloud; set
+            this when the VM is a server of your own on the LAN.
+
+    config MUSE_VM_TTS
+        bool "Speak replies instead of pacing them in silence"
+        default n
+        depends on MUSE_HATCH
+        help
+            Muse's own replies are text only: the turn holds each message for
+            as long as it would take to read, using silence, and the speaker
+            stays quiet. With this on, the session asks the VM for the spoken
+            form of each message on POST /chat/tts and plays the MP3 it
+            returns. Needs a VM that can synthesise speech; the silent path is
+            the fallback when it can't.
+
+    config MUSE_VM_ANY_CERT
+        bool "Accept any certificate from the VM"
+        default n
+        depends on MUSE_HATCH
+        select ESP_TLS_INSECURE
+        select ESP_TLS_SKIP_SERVER_CERT_VERIFY
+        help
+            For a VM on your own LAN, whose self-signed certificate the built-in
+            Mozilla bundle would reject. The session still runs over TLS; only
+            the certificate check is dropped, so pair MUSE_VM_PORT with the
+            server's port and point Server at its address.
+
+            This trusts whoever answers at that address. Leave it off for
+            Muse's cloud, and off on anything you don't control.
 
 endmenu

@@ -1,0 +1,70 @@
+# Waveshare ESP32-S3-Touch-LCD-1.9, full UI
+#
+# Loaded after `sdkconfig.defaults` and `sdkconfig.muse`. `sdkconfig.muse`
+# already sets the Muse display backend, the `MuseGadget` BLE prefix,
+# `partitions_muse.csv` and 16 MB of flash; this adds what is specific to this
+# board.
+#
+#   Chip     ESP32-S3 at 240 MHz, 16 MB flash, 8 MB octal PSRAM (AP Memory,
+#            80 MHz), quad flash data lines per the board's eFuse
+#   USB      the chip's own USB-Serial/JTAG (usbmodem), 303a:1001
+#   Panel    SH8601 170x320 on SPI3: RST 9, CLK 10, DC 11, CS 12, MOSI 13,
+#            backlight 14, with 35 invisible columns at the left of the
+#            controller's 240 (see boards/board_waveshare_s3_lcd19.c)
+#   Button   BOOT on GPIO 0, the only one, so it is the talk button
+#   Audio    not wired up yet: this board has no codec chip, and its mic and
+#            amp are raw I2S on separate buses
+#
+# Pins come from the board's schematic and from the vendor firmware the user
+# builds for it, not from guesswork.
+
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_MUSE_BOARD_WAVESHARE_S3_LCD19=y
+
+CONFIG_HOMEHUB_BUTTON_GPIO=0
+
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
+CONFIG_SPIRAM_RODATA=y
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
+CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+CONFIG_SPIRAM_IGNORE_NOTFOUND=n
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+
+# The amplifier and microphone are register-less I2S parts, so both
+# esp_codec_dev devices are built on the dummy codec. Its Kconfig help
+# says it is "used without a codec chip", which is this board.
+CONFIG_CODEC_DUMMY_SUPPORT=y
+
+# The voice session talks to a VM of our own on the LAN rather than to
+# Muse's cloud: plain TCP (no certificate the Mozilla bundle would take)
+# on the port Tools/local_vm.py listens on.
+CONFIG_MUSE_VM_PORT=8766
+CONFIG_MUSE_VM_ANY_CERT=y
+# Speak replies (the VM returns MP3) rather than pacing them in silence.
+CONFIG_MUSE_VM_TTS=y
+
+# Replies arrive as UTF-8 Chinese. Muse's own fonts (unscii, montserrat)
+# have no CJK glyphs, so they render as boxes. LVGL bundles Source Han
+# Sans SC 16 px with ~1000 common hanzi plus full ASCII, which is what
+# the reply captions use instead.
+CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_16_CJK=y
+
+# The panel is 170x320 and its draw buffers live in internal DMA RAM, so one
+# SW draw unit is enough.
+CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=8

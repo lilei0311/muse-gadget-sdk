@@ -439,7 +439,20 @@ static void build_button_icons(lv_obj_t *face)
 static void on_canvas_clicked(lv_event_t *e)
 {
     (void)e;
-    muse_state_make_happy();
+    /*
+     * Tapping Muse is the talk button on a touch board: the first tap starts
+     * hands-free conversation, the next stops it. That is also the exit — the
+     * gadget's only physical button is left to pairing and setup.
+     */
+    bool on = !muse_settings_continuous();
+    muse_settings_set_continuous(on);
+    ESP_LOGI(TAG, "hands-free %s (tapped Muse)", on ? "on" : "off");
+    if (on) {
+        muse_state_make_happy();
+        muse_state_set_caption("SPEAK UP, PAUSE TO SEND");
+    } else {
+        muse_state_set_caption("HANDS-FREE OFF");
+    }
 }
 
 static const lv_font_t *font_pick(const lv_font_t *full, const lv_font_t *compact)
@@ -665,8 +678,15 @@ static void build_answer(lv_obj_t *face, int ring_in)
         int d = ring_in - spk_r - 4;   /* just inside the ring, even when swollen */
         spk_x = -(int)sqrtf((float)(d * d - spk_y * spk_y));
     }
-    const lv_font_t *font = &lv_font_unscii_16;
+    /* Replies are UTF-8 and, with a Chinese answer, mostly hanzi: the unscii
+     * fonts have no CJK glyphs, so those characters rendered as boxes. Source
+     * Han Sans SC 16 carries ~1000 common hanzi and full ASCII. Everything
+     * below measures this font (cw, pitch, fits_across), so the pages resize
+     * with it. */
+    const lv_font_t *font = &lv_font_source_han_sans_sc_16_cjk;
     int cw = lv_font_get_glyph_width(font, 'M', ' ');
+    /* A hanzi is two of those columns, so halve the column count for wrapping
+     * purposes: `cols` counts 'M' widths, and the wrapper adds 2 per hanzi. */
     int pitch = lv_font_get_line_height(font) + CAPTION_LINE_SPACE;
 
     answer_layout_t *l = &s_answers[ANSWER_HEARD];
@@ -869,11 +889,14 @@ static void build_screen(void)
      * these rows, so there's nowhere to put this without covering the face. */
     lv_obj_set_flag(s_name_lbl, LV_OBJ_FLAG_HIDDEN, s_small && !s_tall && s_h < 200);
 
-    s_caption_lbl = make_label(face, font_pick(&lv_font_unscii_16, &lv_font_unscii_8), COLOR_CAPTION);
+    /* The live caption while a reply streams: same CJK font, so it doesn't
+     * turn into boxes when the text is Chinese. */
+    s_caption_lbl = make_label(face, &lv_font_source_han_sans_sc_16_cjk, COLOR_CAPTION);
     if (s_small) {
         /* Two lines over the bottom of the face, on a dark band so they stay
          * legible. A tall screen has room to keep them above the mic icon. */
-        lv_obj_set_size(s_caption_lbl, s_w, 2 * 8 + 2 + 4);
+        int cap_line = lv_font_get_line_height(&lv_font_source_han_sans_sc_16_cjk);
+        lv_obj_set_size(s_caption_lbl, s_w, 2 * cap_line + 2 + 4);
         lv_obj_set_style_pad_ver(s_caption_lbl, 2, 0);
         lv_obj_set_style_text_line_space(s_caption_lbl, 2, 0);
         lv_obj_set_style_bg_color(s_caption_lbl, lv_color_black(), 0);
